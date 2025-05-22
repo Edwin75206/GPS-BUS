@@ -27,6 +27,40 @@ mi-tracker-gps/
 
 ## 🔧 Prerrequisitos
 
+### 🌐 Obtener dirección IP local
+
+Para que tu ESP32 envíe datos al servidor correcto, necesitas conocer la IP de tu PC en la red local:
+
+**Windows**
+
+1. Abre **Símbolo del sistema** (CMD) o PowerShell.
+2. Ejecuta:
+
+   ```bash
+   ipconfig
+   ```
+3. Localiza la sección de tu adaptador **Wi-Fi** (o Ethernet) y copia la **Dirección IPv4** (p. ej. `192.168.1.105`).
+
+**macOS**
+
+1. Abre **Terminal** (⌘ + Espacio y escribe "Terminal").
+2. Para obtener directamente la IP de Wi‑Fi, ejecuta:
+
+   ```bash
+   ipconfig getifaddr en0
+   ```
+
+   O bien usa:
+
+   ```bash
+   ifconfig
+   ```
+
+   y busca bajo `en0` la línea que empiece por `inet ` (p. ej. `inet 192.168.1.105`).
+3. También puedes abrir **Preferencias del Sistema > Red**, seleccionar tu conexión activa y leer la **Dirección IP**.
+
+## 🔧 Prerrequisitos
+
 1. **Node.js** ≥ v14
 2. **npm** (viene con Node.js)
 3. **Arduino IDE** o **VSCode + PlatformIO**
@@ -107,5 +141,3 @@ mi-tracker-gps/
 * **Estilos**: modifica `frontend/index.html` o agrega CSS en `frontend/css/`.
 
 ---
-
-

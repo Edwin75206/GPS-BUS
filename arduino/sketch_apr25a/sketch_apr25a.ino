@@ -3,31 +3,26 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-// — TinyGPSPlus y Serial2 para ESP32 —
-TinyGPSPlus gps;
-HardwareSerial SerialGPS(2);   // UART2
+// Pines RX/TX para GPS en UART2
+#define RXD2 16
+#define TXD2 17
+#define GPS_BAUD 9600
 
-// — Pines RX/TX de tu módulo GPS Neo6M —  
-//    RX del módulo al pin 16 del ESP32 (TX2)
-//    TX del módulo al pin 17 del ESP32 (RX2)
-const int GPS_RX_PIN = 17;
-const int GPS_TX_PIN = 16;
+TinyGPSPlus gps;
+HardwareSerial gpsSerial(2);  // UART2
 
 // — Tus credenciales Wi-Fi y endpoint de tu API —
 const char* ssid     = "INFINITUM1CF5";
 const char* password = "Hhq6LxrXgq";
-const char* endpoint = "http://192.168.1.100:3000/api/locations";
-
-const unsigned long interval = 5000;  // 5 segundos
-unsigned long lastSend = 0;
+const char* endpoint = "http://192.168.1.105:3000/api/locations";
 
 void setup() {
-  // USB Serial para debug
   Serial.begin(115200);
-
-  // Serial para GPS
-  SerialGPS.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
   delay(100);
+
+  // Inicializa la UART2 para el GPS
+  gpsSerial.begin(GPS_BAUD, SERIAL_8N1, RXD2, TXD2);
+  Serial.println("Serial 2 (GPS) iniciado a 9600 baudios");
 
   // Conecta a Wi-Fi
   WiFi.begin(ssid, password);
@@ -36,52 +31,67 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi OK, IP: " + WiFi.localIP().toString());
+  Serial.println("\nWiFi conectado, IP: " + WiFi.localIP().toString());
+  Serial.println("→ Enviando POST a: " + String(endpoint));
+
 }
 
 void loop() {
-  // Parsea todo lo que llega del GPS
-  while (SerialGPS.available()) {
-    gps.encode(SerialGPS.read());
+  // 1) Lee NMEA durante 1s para alimentar al parser
+  unsigned long start = millis();
+  while (millis() - start < 1000) {
+    while (gpsSerial.available() > 0) {
+      gps.encode(gpsSerial.read());
+    }
   }
 
-  // Espera hasta el siguiente envío
-  if (millis() - lastSend < interval) return;
-  lastSend = millis();
+  // 2) Cuando hay nueva posición válida…
+  if (gps.location.isUpdated()) {
+    // — Imprime info por Serial —
+    Serial.print("LAT: ");  Serial.println(gps.location.lat(), 6);
+    Serial.print("LNG: ");  Serial.println(gps.location.lng(), 6);
+    Serial.print("Speed (km/h): "); Serial.println(gps.speed.kmph());
+    Serial.print("Alt (m): ");       Serial.println(gps.altitude.meters());
+    Serial.print("Satélites: ");     Serial.println(gps.satellites.value());
+    Serial.print("UTC: ");
+    Serial.print(gps.date.year());   Serial.print("/");
+    Serial.print(gps.date.month());  Serial.print("/");
+    Serial.print(gps.date.day());    Serial.print(" ");
+    Serial.print(gps.time.hour());   Serial.print(":");
+    Serial.print(gps.time.minute()); Serial.print(":");
+    Serial.println(gps.time.second());
+    Serial.println();
 
-  // Comprueba que hay fix válido
-  if (!gps.location.isValid() || gps.location.age() > 5000) {
-    Serial.println("⏳ Sin fix GPS válido");
-    return;
-  }
+    // — Construye JSON —
+    StaticJsonDocument<200> doc;
+    doc["deviceId"] = "esp32-001";
+    doc["lat"]      = gps.location.lat();
+    doc["lng"]      = gps.location.lng();
+    doc["speed"]    = gps.speed.kmph();
+    doc["alt"]      = gps.altitude.meters();
+    // timestamp en ISO (UTC)
+    char buf[25];
+    snprintf(buf, sizeof(buf), "%04u-%02u-%02uT%02u:%02u:%02uZ",
+             gps.date.year(), gps.date.month(), gps.date.day(),
+             gps.time.hour(), gps.time.minute(), gps.time.second());
+    doc["timestamp"] = buf;
 
-  float lat = gps.location.lat();
-  float lng = gps.location.lng();
-  unsigned long timestamp = millis();
+    String body;
+    serializeJson(doc, body);
+    Serial.println("→ Enviando POST:");
+    Serial.println(body);
 
-  // Construye JSON
-  StaticJsonDocument<200> doc;
-  doc["deviceId"]  = "esp32-001";
-  doc["lat"]       = lat;
-  doc["lng"]       = lng;
-  doc["timestamp"] = timestamp;
-  String body;
-  serializeJson(doc, body);
-
-  // Imprime en Serial
-  Serial.println("→ Enviando:");
-  Serial.println(body);
-
-  // POST al servidor
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(endpoint);
-    http.addHeader("Content-Type", "application/json");
-    int code = http.POST(body);
-    String resp = http.getString();
-    Serial.printf("POST %d, respuesta: %s\n", code, resp.c_str());
-    http.end();
-  } else {
-    Serial.println("❌ WiFi desconectado");
+    // — Envía al servidor —
+    if (WiFi.status() == WL_CONNECTED) {
+      HTTPClient http;
+      http.begin(endpoint);
+      http.addHeader("Content-Type", "application/json");
+      int statusCode = http.POST(body);
+      String resp = http.getString();
+      Serial.printf("HTTP %d, respuesta: %s\n\n", statusCode, resp.c_str());
+      http.end();
+    } else {
+      Serial.println("❌ WiFi desconectado\n");
+    }
   }
 }
